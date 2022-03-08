@@ -1,11 +1,60 @@
+open Core
 open Symbol
 
-type pos = int
+type token =
+  | WHILE
+  | VAR
+  | TYPE
+  | TO
+  | TIMES
+  | THEN
+  | STRING of string
+  | SEMICOLON
+  | RPAREN
+  | RBRACK
+  | RBRACE
+  | PLUS
+  | OR
+  | OF
+  | NIL
+  | NEQ
+  | MINUS
+  | LT
+  | LPAREN
+  | LET
+  | LE
+  | LBRACK
+  | LBRACE
+  | INT of int
+  | IN
+  | IF
+  | ID of string
+  | GT
+  | GE
+  | FUNCTION
+  | FOR
+  | EQ
+  | EOF
+  | END
+  | ELSE
+  | DOT
+  | DO
+  | DIVIDE
+  | COMMA
+  | COLON
+  | BREAK
+  | ASSIGN
+  | ARRAY
+  | AND
+[@@deriving sexp]
+
+type pos = int [@@deriving sexp]
 
 type var =
   | SimpleVar of symbol * pos
   | FieldVar of var * symbol * pos
   | SubscriptVar of var * exp * pos
+[@@deriving sexp]
 
 and exp =
   | VarExp of var
@@ -14,7 +63,6 @@ and exp =
   | StringExp of string * pos
   | CallExp of { func : symbol; args : exp list; pos : pos }
   | OpExp of { left : exp; oper : oper; right : exp; pos : pos }
-  | UnaryOpExp of { oper : oper; exp : exp; pos : pos }
   | RecordExp of { fields : (symbol * exp * pos) list; typ : symbol; pos : pos }
   | SeqExp of (exp * pos) list
   | AssignExp of { var : var; exp : exp; pos : pos }
@@ -31,6 +79,7 @@ and exp =
   | BreakExp of pos
   | LetExp of { decs : dec list; body : exp; pos : pos }
   | ArrayExp of { typ : symbol; size : exp; init : exp; pos : pos }
+[@@deriving sexp]
 
 and dec =
   | FunctionDec of fundec list
@@ -42,13 +91,15 @@ and dec =
       pos : pos;
     }
   | TypeDec of type_info list
+[@@deriving sexp]
 
 and ty =
   | NameTy of symbol * pos
   | RecordTy of field list
   | ArrayTy of symbol * pos
+[@@deriving sexp]
 
-and type_info = { name : symbol; ty : ty; pos : pos }
+and type_info = { name : symbol; ty : ty; pos : pos } [@@deriving sexp]
 
 and oper =
   | PlusOp
@@ -63,8 +114,10 @@ and oper =
   | GeOp
   | AndOp
   | OrOp
+[@@deriving sexp]
 
 and field = { name : symbol; escape : bool ref; typ : symbol; pos : pos }
+[@@deriving sexp]
 
 and fundec = {
   name : symbol;
@@ -73,3 +126,4 @@ and fundec = {
   body : exp;
   pos : pos;
 }
+[@@deriving sexp]

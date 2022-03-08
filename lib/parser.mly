@@ -1,6 +1,5 @@
 %{
   open Ast
-  open Parsing
   open Symbol
 %}
 
@@ -60,12 +59,12 @@
 %left TIMES DIVIDE
 %nonassoc UMINUS
 
-%type <Ast.dec list> prog
+%type <Ast.exp> prog
 %start prog
 
 %% 
 
-prog: decs EOF { $1 }
+prog: exp EOF { $1 }
 
 decs:
   | tydec+ non_tydecs { (TypeDec $1) :: $2 } 
@@ -93,8 +92,8 @@ non_tydecs:
   ;
 
 vardec:
-  | VAR; name = ID; ASSIGN; init = exp
-    { VarDec ({ name = symbol name; escape = ref true; typ = None; init; pos = 0; }) }
+  | VAR; name = ID typ = annotation? ASSIGN init = exp
+    { VarDec ({ name = symbol name; escape = ref true; typ; init; pos = 0; }) }
   ;
 
 tydec: TYPE; id = ID; EQ; ty = ty 
@@ -125,13 +124,13 @@ tyfield:
   ;
 
 fundec:
-  | FUNCTION; id = ID; LPAREN; params = tyfields; result = annotation?; RPAREN; EQ; int = INT
+  | FUNCTION; id = ID; LPAREN; params = tyfields; RPAREN; result = annotation?; EQ; body = exp
     { 
       {
         name = symbol id;
         params;
         result;
-        body = IntExp int;
+        body;
         pos = 0;
       } 
     }
@@ -181,7 +180,7 @@ exp:
     { IfExp { test; then' = exp1; else' = None; pos = 0 } }
   | IF test = exp THEN exp1 = exp ELSE exp2 = exp
     { IfExp { test; then' = exp1; else' = Some exp2; pos = 0 } }
-  | WHILE test = exp THEN body = exp
+  | WHILE test = exp DO body = exp
     { WhileExp { test; body; pos = 0 } }
   | FOR var = ID ASSIGN lo = exp TO hi = exp DO body = exp
     { ForExp { var = symbol var; escape = ref true; lo; hi; body; pos = 0 } }
@@ -193,7 +192,14 @@ exp:
     { ArrayExp { typ = symbol typ; size; init; pos = 0 } }
   | lvalue = lvalue 
     { VarExp lvalue }
+  | func = ID LPAREN args = separated_list(COMMA, exp) RPAREN
+    { CallExp { func = symbol func; args; pos = 0 } }
+  | typ = ID LBRACE fields = separated_list(COMMA, record_field) RBRACE
+    { RecordExp { fields; typ = symbol typ; pos = 0 } }
   ;
+
+record_field: id = ID EQ exp = exp
+  { (symbol id, exp, 0) }
 
 lvalue:
   | id = ID 

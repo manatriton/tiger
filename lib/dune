@@ -1,6 +1,8 @@
 (library
  (name tiger)
- (libraries core))
+ (libraries core)
+ (preprocess
+  (pps ppx_jane)))
 
 (env
  (dev
@@ -8,4 +10,6 @@
 
 (menhir
  (modules parser)
- (flags --explain))
+ (flags --explain --external-tokens Ast --trace))
+
+(ocamllex lexer)

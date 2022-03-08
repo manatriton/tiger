@@ -1,6 +1,6 @@
 open Core
 
-type symbol = string * int
+type symbol = string * int [@@deriving sexp]
 
 let next_symbol = ref 0
 let hashtbl = Hashtbl.create (module String)

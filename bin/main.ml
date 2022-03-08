@@ -1,9 +1,8 @@
-(* open Base
-   open Stdio
-   open Tiger
+open Core
+open Tiger
 
-   let () =
-     let wc = Hello.word_count "foo bar baz foo bar" in
-     Map.iter_keys wc ~f:(fun key ->
-         let value = Map.find_exn wc key in
-         printf "(\"%s\": %d)\n" key value) *)
+let () =
+  let lexbuf = Lexing.from_channel In_channel.stdin in
+  let prog = Parser.prog Lexer.read lexbuf in
+  Out_channel.print_endline
+    (Sexp.to_string_hum ~indent:2 (Ast.sexp_of_exp prog))

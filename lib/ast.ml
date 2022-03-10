@@ -1,5 +1,4 @@
 open Core
-open Symbol
 
 type token =
   | WHILE
@@ -51,8 +50,8 @@ type token =
 type pos = int [@@deriving sexp]
 
 type var =
-  | SimpleVar of symbol * pos
-  | FieldVar of var * symbol * pos
+  | SimpleVar of Symbol.t * pos
+  | FieldVar of var * Symbol.t * pos
   | SubscriptVar of var * exp * pos
 [@@deriving sexp]
 
@@ -61,15 +60,19 @@ and exp =
   | NilExp
   | IntExp of int
   | StringExp of string * pos
-  | CallExp of { func : symbol; args : exp list; pos : pos }
+  | CallExp of { func : Symbol.t; args : exp list; pos : pos }
   | OpExp of { left : exp; oper : oper; right : exp; pos : pos }
-  | RecordExp of { fields : (symbol * exp * pos) list; typ : symbol; pos : pos }
+  | RecordExp of {
+      fields : (Symbol.t * exp * pos) list;
+      typ : Symbol.t;
+      pos : pos;
+    }
   | SeqExp of (exp * pos) list
   | AssignExp of { var : var; exp : exp; pos : pos }
   | IfExp of { test : exp; then' : exp; else' : exp option; pos : pos }
   | WhileExp of { test : exp; body : exp; pos : pos }
   | ForExp of {
-      var : symbol;
+      var : Symbol.t;
       escape : bool ref;
       lo : exp;
       hi : exp;
@@ -78,15 +81,15 @@ and exp =
     }
   | BreakExp of pos
   | LetExp of { decs : dec list; body : exp; pos : pos }
-  | ArrayExp of { typ : symbol; size : exp; init : exp; pos : pos }
+  | ArrayExp of { typ : Symbol.t; size : exp; init : exp; pos : pos }
 [@@deriving sexp]
 
 and dec =
   | FunctionDec of fundec list
   | VarDec of {
-      name : symbol;
+      name : Symbol.t;
       escape : bool ref;
-      typ : (symbol * pos) option;
+      typ : (Symbol.t * pos) option;
       init : exp;
       pos : pos;
     }
@@ -94,12 +97,12 @@ and dec =
 [@@deriving sexp]
 
 and ty =
-  | NameTy of symbol * pos
+  | NameTy of Symbol.t * pos
   | RecordTy of field list
-  | ArrayTy of symbol * pos
+  | ArrayTy of Symbol.t * pos
 [@@deriving sexp]
 
-and type_info = { name : symbol; ty : ty; pos : pos } [@@deriving sexp]
+and type_info = { name : Symbol.t; ty : ty; pos : pos } [@@deriving sexp]
 
 and oper =
   | PlusOp
@@ -116,13 +119,13 @@ and oper =
   | OrOp
 [@@deriving sexp]
 
-and field = { name : symbol; escape : bool ref; typ : symbol; pos : pos }
+and field = { name : Symbol.t; escape : bool ref; typ : Symbol.t; pos : pos }
 [@@deriving sexp]
 
 and fundec = {
-  name : symbol;
+  name : Symbol.t;
   params : field list;
-  result : (symbol * pos) option;
+  result : (Symbol.t * pos) option;
   body : exp;
   pos : pos;
 }

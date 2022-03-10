@@ -1,10 +1,10 @@
-type symbol [@@deriving sexp]
+type t [@@deriving sexp]
 
-val symbol : string -> symbol
-val name : symbol -> string 
+val symbol : string -> t 
+val name : t -> string 
 
-(* type 'a table
+type 'a table
 
-val empty : 'a table
-val enter : 'a table * symbol * 'a -> 'a table
-val look : 'a table * symbol -> 'a option *)
+val empty : unit -> 'a table 
+val add: 'a table -> symbol:t-> data:'a -> 'a table
+val find: 'a table -> symbol:t -> 'a option

@@ -1,0 +1,11 @@
+(library
+ (name tiger)
+ (libraries core))
+
+(env
+ (dev
+  (flags (:standard -warn-error -30))))
+
+(menhir
+ (modules parser)
+ (flags --explain))

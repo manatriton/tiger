@@ -1,4 +1,6 @@
-type unique = unit ref
+open Core
+
+type unique = unit ref [@@deriving sexp]
 
 type ty =
   | Record of (Symbol.t * ty) list * unique
@@ -8,6 +10,7 @@ type ty =
   | Array of ty * unique
   | Name of Symbol.t * ty option ref
   | Unit
+[@@deriving sexp]
 
 let equal x y =
   match (x, y) with

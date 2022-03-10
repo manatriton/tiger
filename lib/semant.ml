@@ -17,6 +17,11 @@ exception Error of error * int
 let raise_unbound_value sym pos =
   raise (Error (Unbound_value (Symbol.name sym), pos))
 
+let find_or_raise_unbound_type tenv sym pos =
+  match Symbol.find tenv ~symbol:sym with
+  | Some ty -> ty
+  | None -> raise (Error (Unbound_type (Symbol.name sym), pos))
+
 let rec trans_exp venv tenv exp =
   match exp with
   | VarExp var -> trans_var venv tenv var
@@ -96,6 +101,7 @@ let rec trans_exp venv tenv exp =
       | _ -> raise (Error (Expr_type_clash, pos)))
   | ForExp { var = _; escape = _; lo = _; hi = _; body = _; pos = _ } ->
       failwith ""
+  | BreakExp _ -> { exp = _; ty = Types.Unit }
   | _ -> failwith "unsupported exp type"
 
 and trans_var venv tenv var =
@@ -105,7 +111,7 @@ and trans_var venv tenv var =
         match Symbol.find venv ~symbol with
         | Some (Env.VarEntry { ty }) -> ty
         | Some (Env.FunEntry _) -> failwith "function can't be in this position"
-        | None -> failwith "undefined variable"
+        | None -> raise (Error (Unbound_value (Symbol.name symbol), 0))
       in
       { exp = (); ty }
   | FieldVar (var, symbol, _pos) -> (
@@ -132,41 +138,31 @@ and trans_var venv tenv var =
 and trans_dec venv tenv = function
   | FunctionDec fundecs ->
       let venv =
-        List.fold fundecs ~init:venv ~f:(fun acc fundec ->
+        List.fold fundecs ~init:venv
+          ~f:(fun acc { params; pos; result; name; _ } ->
             let formals =
-              List.map fundec.params ~f:(fun param ->
-                  match Symbol.find tenv ~symbol:param.name with
-                  | Some ty -> ty
-                  | None ->
-                      raise
-                        (Error
-                           (Unbound_type (Symbol.name param.name), fundec.pos)))
+              List.map params ~f:(fun { name; _ } ->
+                  find_or_raise_unbound_type tenv name pos)
             in
             let result =
-              match fundec.result with
-              | Some (sym, pos) -> (
-                  match Symbol.find tenv ~symbol:sym with
-                  | Some ty -> ty
-                  | None -> raise (Error (Unbound_type (Symbol.name sym), pos)))
+              match result with
+              | Some (sym, pos) -> find_or_raise_unbound_type tenv sym pos
               | None -> Types.Unit
             in
-            Symbol.add acc ~symbol:fundec.name
-              ~data:(Env.FunEntry { formals; result }))
+            Symbol.add acc ~symbol:name ~data:(Env.FunEntry { formals; result }))
       in
       (venv, tenv)
   | VarDec { name; escape = _escape; typ; init; pos = _pos } -> (
       let { ty = init_ty; _ } = trans_exp venv tenv init in
       match typ with
-      | Some (sym, pos) -> (
-          match Symbol.find tenv ~symbol:sym with
-          | Some ty ->
-              if Types.equal init_ty ty then
-                let venv =
-                  Symbol.add venv ~symbol:name ~data:(VarEntry { ty = init_ty })
-                in
-                (venv, tenv)
-              else raise (Error (Expr_type_clash, pos))
-          | None -> raise (Error (Unbound_type (Symbol.name sym), pos)))
+      | Some (sym, pos) ->
+          let ty = find_or_raise_unbound_type tenv sym pos in
+          if Types.equal init_ty ty then
+            let venv =
+              Symbol.add venv ~symbol:name ~data:(VarEntry { ty = init_ty })
+            in
+            (venv, tenv)
+          else raise (Error (Expr_type_clash, pos))
       | None ->
           let venv =
             Symbol.add venv ~symbol:name ~data:(VarEntry { ty = init_ty })
@@ -181,19 +177,14 @@ and trans_dec venv tenv = function
       (venv, tenv')
 
 and trans_ty _venv tenv = function
-  | NameTy (sym, pos) -> (
-      match Symbol.find tenv ~symbol:sym with
-      | Some ty -> ty
-      | None -> raise (Error (Unbound_type (Symbol.name sym), pos)))
-  | ArrayTy (sym, pos) -> (
-      match Symbol.find tenv ~symbol:sym with
-      | Some ty -> Types.Array (ty, ref ())
-      | None -> raise (Error (Unbound_type (Symbol.name sym), pos)))
+  | NameTy (sym, pos) -> find_or_raise_unbound_type tenv sym pos
+  | ArrayTy (sym, pos) ->
+      let ty = find_or_raise_unbound_type tenv sym pos in
+      Types.Array (ty, ref ())
   | RecordTy fields ->
       let fields' =
         List.map fields ~f:(fun { name; typ; pos; _ } ->
-            match Symbol.find tenv ~symbol:typ with
-            | Some ty -> (name, ty)
-            | None -> raise (Error (Unbound_type (Symbol.name typ), pos)))
+            let ty = find_or_raise_unbound_type tenv typ pos in
+            (name, ty))
       in
       Types.Record (fields', ref ())

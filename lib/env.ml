@@ -8,7 +8,7 @@ type entry =
 
 let base_tenv =
   let predefined = [ ("int", Types.Int); ("string", Types.String) ] in
-  List.fold predefined ~init:(Symbol.empty ()) ~f:(fun acc def ->
+  List.fold predefined ~init:Symbol.empty ~f:(fun acc def ->
       let name, ty = def in
       Symbol.add acc ~symbol:(Symbol.symbol name) ~data:ty)
 
@@ -27,7 +27,7 @@ let base_venv =
       ("exit", [ Types.Int ], Types.Unit);
     ]
   in
-  List.fold predefined ~init:(Symbol.empty ()) ~f:(fun acc def ->
+  List.fold predefined ~init:Symbol.empty ~f:(fun acc def ->
       let name, formals, result = def in
       Symbol.add acc ~symbol:(Symbol.symbol name)
         ~data:(FunEntry { formals; result }))

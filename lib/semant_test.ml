@@ -26,6 +26,21 @@ let%test "seq_exp_empty" =
   | { exp = (); ty = Types.Unit } -> true
   | _ -> false
 
+let%test "call_exp_print" =
+  let call =
+    CallExp
+      {
+        func = Symbol.symbol "print";
+        args = [ StringExp ("Hello, world!", 0) ];
+        pos = 0;
+      }
+  in
+  match trans_exp call with { exp = (); ty = Types.Unit } -> true | _ -> false
+
+let%test "call_exp_flush" =
+  let call = CallExp { func = Symbol.symbol "flush"; args = []; pos = 0 } in
+  match trans_exp call with { exp = (); ty = Types.Unit } -> true | _ -> false
+
 let%test "seq_exp_multi" =
   let exps =
     [
@@ -59,4 +74,14 @@ let%test "if_exp_else" =
   let else' = Some (IntExp 2) in
   match trans_exp (IfExp { test; then'; else'; pos = 0 }) with
   | { exp = (); ty = Types.Int } -> true
+  | _ -> false
+
+let%test "while_exp" =
+  let call =
+    CallExp
+      { func = Symbol.symbol "print"; args = [ StringExp ("foo", 0) ]; pos = 0 }
+  in
+  let while' = WhileExp { test = IntExp 1; body = call; pos = 0 } in
+  match trans_exp while' with
+  | { exp = (); ty = Types.Unit } -> true
   | _ -> false

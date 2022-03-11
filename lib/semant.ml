@@ -28,20 +28,20 @@ let rec trans_exp venv tenv exp =
   | NilExp -> { exp = (); ty = Types.Nil }
   | IntExp _ -> { exp = (); ty = Types.Int }
   | StringExp _ -> { exp = (); ty = Types.String }
-  | CallExp { func; args; pos } ->
+  | CallExp { func; args; _ } ->
       let ty =
         match Symbol.find venv ~symbol:func with
         (* Match each argument type *)
         | Some (Env.FunEntry { formals; result }) ->
             if List.length args <> List.length formals then
-              raise (Error (Wrong_num_arguments, pos));
+              raise (Error (Wrong_num_arguments, 1));
             let arg_types =
               List.map args ~f:(fun arg -> (trans_exp venv tenv arg).ty)
             in
-            if not (List.equal Core.phys_equal arg_types formals) then
-              raise (Error (Expr_type_clash, pos))
+            if not (List.equal Types.equal arg_types formals) then
+              raise (Error (Expr_type_clash, 2))
             else result
-        | _ -> raise_unbound_value func pos
+        | _ -> raise_unbound_value func 3
       in
       { exp = (); ty }
   | OpExp { left; oper; right; pos } -> (
@@ -99,9 +99,33 @@ let rec trans_exp venv tenv exp =
           | { ty = Types.Unit; _ } -> { exp = (); ty = Types.Unit }
           | _ -> raise (Error (Expr_type_clash, pos)))
       | _ -> raise (Error (Expr_type_clash, pos)))
-  | ForExp { var = _; escape = _; lo = _; hi = _; body = _; pos = _ } ->
-      failwith ""
-  | BreakExp _ -> { exp = _; ty = Types.Unit }
+  | ForExp { var; escape = _; lo; hi; body; pos } -> (
+      (* assert lo int *)
+      (match trans_exp venv tenv lo with
+      | { exp = _; ty = Types.Int } -> ()
+      | _ -> raise (Error (Expr_type_clash, pos)));
+      (* assert hi int *)
+      (match trans_exp venv tenv hi with
+      | { exp = _; ty = Types.Int } -> ()
+      | _ -> raise (Error (Expr_type_clash, pos)));
+      let venv' =
+        Symbol.add venv ~symbol:var ~data:(Env.VarEntry { ty = Types.Int })
+      in
+      (* assert body *)
+      match trans_exp venv' tenv body with
+      | { exp = _; ty = Types.Unit } -> { exp = (); ty = Types.Unit }
+      | _ -> raise (Error (Expr_type_clash, pos)))
+  | BreakExp _ -> { exp = (); ty = Types.Unit }
+  | ArrayExp { typ; size; init; pos } -> (
+      match Symbol.find tenv ~symbol:typ with
+      | Some (Types.Array (inner_ty, _) as ty) ->
+          (let { ty = size_ty; _ } = trans_exp venv tenv size in
+           if not (Types.equal size_ty Types.Int) then
+             raise (Error (Expr_type_clash, pos)));
+          let { ty = init_ty; _ } = trans_exp venv tenv init in
+          if Types.equal init_ty inner_ty then { exp = (); ty }
+          else raise (Error (Expr_type_clash, pos))
+      | _ -> failwith "")
   | _ -> failwith "unsupported exp type"
 
 and trans_var venv tenv var =

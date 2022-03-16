@@ -21,3 +21,4 @@ type 'a table = (int, 'a, Int.comparator_witness) Map.t
 let empty = Map.empty (module Int)
 let add t ~symbol:(_, key) ~data = Map.set t ~key ~data
 let find t ~symbol:(_, key) = Map.find t key
+let equal (_, i1) (_, i2) = i1 = i2

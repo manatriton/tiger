@@ -12,13 +12,13 @@ type ty =
   | Unit
 [@@deriving sexp]
 
-let equal x y =
+let rec equal x y =
   match (x, y) with
   | Record _, Record _ -> true
-  | Nil, Nil -> true
+  | _ty, Nil -> true
   | Int, Int -> true
   | String, String -> true
   | Array _, Array _ -> true
-  | Name _, Name _ -> true
+  | Name (_, { contents = Some tyl }), tyr -> equal tyl tyr
   | Unit, Unit -> true
   | _ -> false

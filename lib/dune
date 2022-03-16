@@ -11,6 +11,6 @@
 
 (menhir
  (modules parser)
- (flags --explain --external-tokens Ast --trace))
+ (flags --explain --external-tokens Ast))
 
 (ocamllex lexer)

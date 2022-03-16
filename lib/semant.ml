@@ -46,21 +46,34 @@ let rec trans_exp venv tenv exp =
             let arg_types =
               List.map args ~f:(fun arg -> (trans_exp venv tenv arg).ty)
             in
-            if not (List.equal Types.equal arg_types formals) then
-              raise (Error (Expr_type_clash (Types.Unit, Types.Unit), 2))
-            else result
+            List.iter (List.zip_exn formals arg_types)
+              ~f:(fun (formal, arg_type) ->
+                if not (Types.equal formal arg_type) then
+                  raise (Error (Expr_type_clash (formal, arg_type), 2)));
+            result
         | _ -> raise_unbound_value func 3
       in
       { exp = (); ty }
-  | OpExp { left; oper; right; pos } -> (
+  | OpExp { left; oper; right; _ } ->
       let { ty = tyl; _ } = trans_exp venv tenv left in
       let { ty = tyr; _ } = trans_exp venv tenv right in
-      match oper with
-      | PlusOp | MinusOp | TimesOp | DivideOp | EqOp | NeqOp | LtOp | LeOp
-      | GtOp | GeOp | AndOp | OrOp -> (
-          match (tyl, tyr) with
-          | Types.Int, Types.Int -> { exp = (); ty = Types.Int }
-          | _ -> raise (Error (Expr_type_clash (tyl, tyr), pos))))
+      let ty =
+        match oper with
+        | EqOp | NeqOp | GtOp | LtOp | GeOp | LeOp -> (
+            match (tyl, tyr) with
+            | Types.Int, Types.Int
+            | Types.String, Types.String
+            | Types.Record _, Types.Record _
+              when Types.equal tyl tyr ->
+                tyl
+            | Types.Array _, Types.Array _ when Types.equal tyl tyr -> Types.Int
+            | _, _ -> failwith "")
+        | PlusOp | MinusOp | TimesOp | DivideOp | AndOp | OrOp -> (
+            match (tyl, tyr) with
+            | Types.Int, Types.Int -> Types.Int
+            | _ -> failwith "")
+      in
+      { exp = (); ty }
   | RecordExp { fields; typ; pos } -> (
       let validate_record tyfields uniq =
         if List.length tyfields <> List.length fields then failwith "";
@@ -191,25 +204,24 @@ and trans_dec venv tenv = function
       let venv' =
         List.fold fundecs ~init:venv
           ~f:(fun acc { params; pos; result; name; body = _body } ->
+            let acc' = ref acc in
             let formals =
-              List.map params ~f:(fun { typ; _ } ->
-                  find_or_raise_unbound_type tenv typ pos)
+              List.map params ~f:(fun { typ; name; _ } ->
+                  let ty = find_or_raise_unbound_type tenv typ pos in
+                  acc' :=
+                    Symbol.add !acc' ~symbol:name
+                      ~data:
+                        (Env.VarEntry
+                           { ty = find_or_raise_unbound_type tenv typ pos });
+                  ty)
             in
-
             let result =
               match result with
               | Some (sym, pos) -> find_or_raise_unbound_type tenv sym pos
               | None -> Types.Unit
             in
-            let acc' =
-              Symbol.add acc ~symbol:name
-                ~data:(Env.FunEntry { formals; result })
-            in
-            List.fold params ~init:acc' ~f:(fun acc { typ; name; _ } ->
-                Symbol.add acc ~symbol:name
-                  ~data:
-                    (Env.VarEntry
-                       { ty = find_or_raise_unbound_type tenv typ pos })))
+            Symbol.add !acc' ~symbol:name
+              ~data:(Env.FunEntry { formals; result }))
       in
       List.iter fundecs ~f:(fun { body; _ } ->
           let _exp = trans_exp venv' tenv body in

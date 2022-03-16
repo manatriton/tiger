@@ -152,9 +152,17 @@ let%test "recursive_type" =
     let prog =
       {|
  
+/* define valid recursive types */
 let
-  type intlist = {hd: int, tl: intlist}
-  var lis: intlist := intlist { hd = 0, tl = nil }
+/* define a list */
+type intlist = {hd: int, tl: intlist} 
+
+/* define a tree */
+type tree ={key: int, children: treelist}
+type treelist = {hd: tree, tl: treelist}
+
+var lis:intlist := intlist { hd=0, tl= nil } 
+
 in
   lis
 end
@@ -167,3 +175,117 @@ end
         true
     | _ -> false
   with Error (error, 0) -> failwith_error error
+
+let%test "recursive procedures" =
+  try
+    let prog =
+      {|
+    
+/* define valid mutually recursive procedures */
+let
+
+function do_nothing1(a: int, b: string)=
+		do_nothing2(a+1)
+
+function do_nothing2(d: int) =
+		do_nothing1(d, "str")
+
+in
+	do_nothing1(0, "str2")
+end
+
+|}
+    in
+    match trans_exp (ast_exp_of_string prog) with
+    | { ty = Types.Unit; _ } -> true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+let%test "recursive functions" =
+  try
+    let prog =
+      {|
+    
+/* define valid mutually recursive functions */
+let
+
+function do_nothing1(a: int, b: string):int=
+    (do_nothing2(a+1);0)
+
+function do_nothing2(d: int):string =
+    (do_nothing1(d, "str");" ")
+
+in
+  do_nothing1(0, "str2")
+end
+
+|}
+    in
+    match trans_exp (ast_exp_of_string prog) with
+    | { ty = Types.Int; _ } -> true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+let%test "correct_if" =
+  try
+    let prog =
+      {|
+    
+/* correct if */
+if (10 > 20) then 30 else 40	
+        
+|}
+    in
+    match trans_exp (ast_exp_of_string prog) with
+    | { ty = Types.Int; _ } -> true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+let%test "invalid_if" =
+  try
+    let prog =
+      {|
+
+/* error : types of then - else differ */
+
+if (5>4) then 13 else  " "
+        
+|}
+    in
+    let _res = trans_exp (ast_exp_of_string prog) in
+    failwith "did not raise error"
+  with Error (Expr_type_clash (Types.Int, Types.String), _) -> true
+
+let%test "while_body_not_unit" =
+  try
+    let prog =
+      {|
+
+/* error : body of while not unit */
+while(10 > 5) do 5+6
+      
+|}
+    in
+    let _res = trans_exp (ast_exp_of_string prog) in
+    failwith "did not raise error"
+  with Error (Expr_type_clash (Types.Unit, Types.Int), _) -> true
+
+let%test "valid_for_and_let" =
+  try
+    let prog =
+      {|
+
+/* valid for and let */
+
+let
+  var a:= 0
+in 
+  for i:=0 to 100 do (a:=a+1;())
+end
+      
+|}
+    in
+    match trans_exp (ast_exp_of_string prog) with
+    | { ty = Types.Unit; _ } -> true
+    | _ -> false
+  with Error (error, _) -> failwith_error error

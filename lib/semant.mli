@@ -8,10 +8,12 @@ type error =
   | Unbound_value of string
   | Unbound_type of string
   | Unexpected_break
+  | Not_a_function of string
+  | Readonly of string
 
 exception Error of error * int
 
-val trans_var : venv -> tenv -> Ast.var -> expty
+val trans_var : ?fail_readonly:bool -> venv -> tenv -> Ast.var -> expty
 val trans_exp : venv -> tenv -> Ast.exp -> expty
 val trans_dec : venv -> tenv -> Ast.dec -> venv * tenv
 val trans_ty : venv -> tenv -> Ast.ty -> Env.ty

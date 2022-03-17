@@ -22,5 +22,6 @@ let rec equal x y =
   | String, String -> true
   | Array (_, lunique), Array (_, runique) -> phys_equal lunique runique
   | Name (_, { contents = Some tyl }), tyr -> equal tyl tyr
+  | tyl, Name (_, { contents = Some tyr }) -> equal tyl tyr
   | Unit, Unit -> true
   | _ -> false

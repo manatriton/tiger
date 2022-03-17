@@ -12,12 +12,14 @@ type error =
   | Unbound_value of string
   | Unbound_type of string
   | Unexpected_break
+  | Not_a_function of string
+  | Readonly of string
 
 exception Error of error * int
 
 let with_loop_marker venv =
   Symbol.add venv ~symbol:(Symbol.symbol ":loop")
-    ~data:(Env.VarEntry { ty = Types.Unit })
+    ~data:(Env.VarEntry { ty = Types.Unit; readonly = true })
 
 let raise_unbound_value sym pos =
   raise (Error (Unbound_value (Symbol.name sym), pos))
@@ -30,13 +32,20 @@ let find_or_raise_unbound_type tenv sym pos =
   | Some ty -> ty
   | None -> raise (Error (Unbound_type (Symbol.name sym), pos))
 
+let expect_type_assignable ~dst ~src ~pos =
+  if not (Types.equal dst src) then
+    raise (Error (Expr_type_clash (dst, src), pos))
+
+let expect_type_equal x y pos =
+  if not (Types.equal x y) then raise (Error (Expr_type_clash (x, y), pos))
+
 let rec trans_exp venv tenv exp =
   match exp with
   | VarExp var -> trans_var venv tenv var
   | NilExp -> { exp = (); ty = Types.Nil }
   | IntExp _ -> { exp = (); ty = Types.Int }
   | StringExp _ -> { exp = (); ty = Types.String }
-  | CallExp { func; args; _ } ->
+  | CallExp { func; args; pos } ->
       let ty =
         match Symbol.find venv ~symbol:func with
         (* Match each argument type *)
@@ -48,8 +57,7 @@ let rec trans_exp venv tenv exp =
             in
             List.iter (List.zip_exn formals arg_types)
               ~f:(fun (formal, arg_type) ->
-                if not (Types.equal formal arg_type) then
-                  raise (Error (Expr_type_clash (formal, arg_type), 2)));
+                expect_type_equal formal arg_type pos);
             result
         | _ -> raise_unbound_value func 3
       in
@@ -61,11 +69,8 @@ let rec trans_exp venv tenv exp =
         match oper with
         | EqOp | NeqOp | GtOp | LtOp | GeOp | LeOp -> (
             match (tyl, tyr) with
-            | Types.Int, Types.Int
-            | Types.String, Types.String
-            | Types.Record _, Types.Record _
-              when Types.equal tyl tyr ->
-                tyl
+            | Types.Int, Types.Int | Types.String, Types.String -> tyl
+            | Types.Record _, Types.Record _ when Types.equal tyl tyr -> tyl
             | Types.Array _, Types.Array _ when Types.equal tyl tyr -> Types.Int
             | _, _ -> failwith "")
         | PlusOp | MinusOp | TimesOp | DivideOp | AndOp | OrOp -> (
@@ -88,8 +93,7 @@ let rec trans_exp venv tenv exp =
         List.iter (List.zip_exn fields' tyfields')
           ~f:(fun ((_, exp1, _), (_, ty2)) ->
             let { ty; _ } = trans_exp venv tenv exp1 in
-            if not (Types.equal ty2 ty) then
-              raise (Error (Expr_type_clash (ty2, ty), pos)));
+            expect_type_equal ty2 ty pos);
         { exp = (); ty = Types.Record (tyfields, uniq) }
       in
       match Symbol.find tenv ~symbol:typ with
@@ -104,7 +108,11 @@ let rec trans_exp venv tenv exp =
       else
         let exp, _ = List.last_exn exps in
         trans_exp venv tenv exp
-  | AssignExp _ -> { exp = (); ty = Types.Unit }
+  | AssignExp { var; exp; pos } ->
+      let { ty = dst; _ } = trans_var ~fail_readonly:true venv tenv var in
+      let { ty = src; _ } = trans_exp venv tenv exp in
+      expect_type_assignable ~dst ~src ~pos;
+      { exp = (); ty = Types.Unit }
   | IfExp { test; then'; else'; pos } -> (
       match trans_exp venv tenv test with
       | { exp = _; ty = Types.Int } -> (
@@ -112,13 +120,11 @@ let rec trans_exp venv tenv exp =
           match else' with
           | Some else' ->
               let { ty = else_ty; _ } = trans_exp venv tenv else' in
-              if Types.equal then_ty else_ty then { exp = (); ty = then_ty }
-              else raise (Error (Expr_type_clash (then_ty, else_ty), pos))
-          | None -> (
-              match then_ty with
-              | Types.Unit -> { exp = (); ty = Types.Unit }
-              | _ -> raise (Error (Expr_type_clash (Types.Unit, then_ty), pos)))
-          )
+              expect_type_equal then_ty else_ty pos;
+              { exp = (); ty = then_ty }
+          | None ->
+              expect_type_equal Types.Unit then_ty pos;
+              { exp = (); ty = Types.Unit })
       | { ty; _ } -> raise (Error (Expr_type_clash (Types.Int, ty), pos)))
   | WhileExp { test; body; pos } -> (
       match trans_exp venv tenv test with
@@ -139,7 +145,8 @@ let rec trans_exp venv tenv exp =
       | { ty; _ } -> raise (Error (Expr_type_clash (Types.Int, ty), pos)));
       let venv' =
         venv
-        |> Symbol.add ~symbol:var ~data:(Env.VarEntry { ty = Types.Int })
+        |> Symbol.add ~symbol:var
+             ~data:(Env.VarEntry { ty = Types.Int; readonly = true })
         |> with_loop_marker
       in
       (* assert body *)
@@ -155,25 +162,30 @@ let rec trans_exp venv tenv exp =
         List.fold decs ~init:(venv, tenv) ~f:(fun (venv, tenv) dec ->
             trans_dec venv tenv dec)
       in
-      let { exp = _; ty } = trans_exp venv' tenv' body in
+      let { ty; _ } = trans_exp venv' tenv' body in
       { exp = (); ty }
   | ArrayExp { typ; size; init; pos } -> (
       match Symbol.find tenv ~symbol:typ with
-      | Some (Types.Array (inner_ty, _) as ty) ->
-          (let { ty = size_ty; _ } = trans_exp venv tenv size in
-           if not (Types.equal size_ty Types.Int) then
-             raise (Error (Expr_type_clash (Types.Int, size_ty), pos)));
+      | Some (Types.Array (inner_ty, _) as ty)
+      | Some
+          (Types.Name
+            (_, { contents = Some (Types.Array (inner_ty, _) as ty) })) ->
+          let { ty = size_ty; _ } = trans_exp venv tenv size in
+          expect_type_equal size_ty Types.Int pos;
           let { ty = init_ty; _ } = trans_exp venv tenv init in
-          if Types.equal init_ty inner_ty then { exp = (); ty }
-          else raise (Error (Expr_type_clash (init_ty, inner_ty), pos))
-      | _ -> failwith "")
+          expect_type_equal init_ty inner_ty pos;
+          { exp = (); ty }
+      | _ -> raise (Error (Unbound_type (Symbol.name typ), pos)))
 
-and trans_var venv tenv var =
+and trans_var ?(fail_readonly = false) venv tenv var =
   match var with
-  | SimpleVar (symbol, _pos) ->
+  | SimpleVar (symbol, pos) ->
       let ty =
         match Symbol.find venv ~symbol with
-        | Some (Env.VarEntry { ty }) -> ty
+        | Some (Env.VarEntry { ty; readonly }) ->
+            if fail_readonly && readonly then
+              raise (Error (Readonly (Symbol.name symbol), pos));
+            ty
         | Some (Env.FunEntry _) -> failwith "function can't be in this position"
         | None -> raise (Error (Unbound_value (Symbol.name symbol), 0))
       in
@@ -212,7 +224,10 @@ and trans_dec venv tenv = function
                     Symbol.add !acc' ~symbol:name
                       ~data:
                         (Env.VarEntry
-                           { ty = find_or_raise_unbound_type tenv typ pos });
+                           {
+                             ty = find_or_raise_unbound_type tenv typ pos;
+                             readonly = false;
+                           });
                   ty)
             in
             let result =
@@ -227,20 +242,21 @@ and trans_dec venv tenv = function
           let _exp = trans_exp venv' tenv body in
           ());
       (venv', tenv)
-  | VarDec { name; escape = _escape; typ; init; pos = _pos } -> (
+  | VarDec { name; typ; init; pos = _pos; _ } -> (
       let { ty = init_ty; _ } = trans_exp venv tenv init in
       match typ with
       | Some (sym, pos) ->
           let ty = find_or_raise_unbound_type tenv sym pos in
-          if Types.equal ty init_ty then
-            let venv =
-              Symbol.add venv ~symbol:name ~data:(VarEntry { ty = init_ty })
-            in
-            (venv, tenv)
-          else raise (Error (Expr_type_clash (ty, init_ty), pos))
+          expect_type_equal ty init_ty pos;
+          let venv =
+            Symbol.add venv ~symbol:name
+              ~data:(VarEntry { ty; readonly = false })
+          in
+          (venv, tenv)
       | None ->
           let venv =
-            Symbol.add venv ~symbol:name ~data:(VarEntry { ty = init_ty })
+            Symbol.add venv ~symbol:name
+              ~data:(VarEntry { ty = init_ty; readonly = false })
           in
           (venv, tenv))
   | TypeDec type_infos ->

@@ -1,4 +1,3 @@
-open Ast
 open! Core
 open Semant
 
@@ -10,17 +9,21 @@ let ast_exp_of_string s =
   let lexbuf = Lexing.from_string s in
   Parser.prog Lexer.read lexbuf
 
+let trans_exp_of_string prog = trans_exp (ast_exp_of_string prog)
+
 let failwith_error error =
   let s =
     match error with
     | Wrong_num_arguments -> "wrong number of arguments"
     | Expr_type_clash (expect_ty, actual_ty) ->
-        Format.sprintf "expected type %s, got type %s"
+        sprintf "expected type %s, got type %s"
           (Sexp.to_string (Types.sexp_of_ty expect_ty))
           (Sexp.to_string (Types.sexp_of_ty actual_ty))
-    | Unbound_type ty -> Format.sprintf "unbound type %s" ty
-    | Unbound_value v -> Format.sprintf "unbound value %s" v
+    | Unbound_type ty -> sprintf "unbound type %s" ty
+    | Unbound_value v -> sprintf "unbound value %s" v
     | Unexpected_break -> "unexpected break"
+    | Not_a_function _s -> "not a function"
+    | Readonly s -> sprintf "readonly variable %s" s
   in
   failwith s
 
@@ -87,13 +90,6 @@ let%test "seq_exp_multi" =
   | { exp = (); ty = Types.String } -> true
   | _ -> false
 
-let%test "assign_exp" =
-  let var = SimpleVar (Symbol.symbol "x", 0) in
-  let exp = IntExp 0 in
-  match Semant.trans_exp venv tenv (AssignExp { var; exp; pos = 0 }) with
-  | { exp = (); ty = Types.Unit } -> true
-  | _ -> false
-
 let%test "if_exp_no_else" =
   let prog = {|
 
@@ -124,10 +120,93 @@ while 1 do print("Hello, world!")
   | { exp = (); ty = Types.Unit } -> true
   | _ -> false
 
-let%test "recursive_function" =
+let%test "test1" =
   try
     let prog =
       {|
+  
+/* an array type and an array variable */
+let
+	type  arrtype = array of int
+	var arr1:arrtype := arrtype [10] of 0
+in
+	arr1
+end
+
+  |}
+    in
+    match trans_exp_of_string prog with
+    | {
+     ty = Types.Name (_, { contents = Some (Types.Array (Types.Int, _)) });
+     _;
+    } ->
+        true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+let%test "test2" =
+  try
+    let prog =
+      {|
+  
+/* arr1 is valid since expression 0 is int = myint */
+let
+  type myint = int
+  type  arrtype = array of myint
+
+  var arr1:arrtype := arrtype [10] of 0
+in
+  arr1
+end
+
+  |}
+    in
+    match trans_exp_of_string prog with
+    | {
+     ty =
+       Types.Name
+         ( _,
+           {
+             contents =
+               Some
+                 (Types.Array
+                   (Types.Name (sym, { contents = Some Types.Int }), _));
+           } );
+     _;
+    }
+      when Symbol.equal sym (Symbol.symbol "myint") ->
+        true
+    | { ty; _ } -> failwith (Sexp.to_string (Types.sexp_of_ty ty))
+  with Error (error, _) -> failwith_error error
+
+let%test "test3" =
+  try
+    let prog =
+      {|
+  
+/* a record type and a record variable */
+let
+  type  rectype = {name:string, age:int}
+  var rec1:rectype := rectype {name="Nobody", age=1000}
+in
+  rec1.name := "Somebody";
+  rec1
+end
+
+  |}
+    in
+    match trans_exp_of_string prog with
+    | { ty = Types.Name (sym, { contents = Some (Types.Record _) }); _ }
+      when Symbol.equal sym (Symbol.symbol "rectype") ->
+        true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+let%test "test4" =
+  try
+    let prog =
+      {|
+
 /* define a recursive function */
 let
 
@@ -140,6 +219,7 @@ function nfactor(n: int): int =
 in
 	nfactor(10)
 end 
+
 |}
     in
     match trans_exp (ast_exp_of_string prog) with
@@ -147,7 +227,7 @@ end
     | _ -> false
   with Error (error, 0) -> failwith_error error
 
-let%test "recursive_type" =
+let%test "test_5" =
   try
     let prog =
       {|
@@ -161,7 +241,7 @@ type intlist = {hd: int, tl: intlist}
 type tree ={key: int, children: treelist}
 type treelist = {hd: tree, tl: treelist}
 
-var lis:intlist := intlist { hd=0, tl= nil } 
+var lis:intlist := intlist { hd=0, tl= nil }
 
 in
   lis
@@ -169,14 +249,19 @@ end
 
   |}
     in
-    match trans_exp (ast_exp_of_string prog) with
-    | { exp = (); ty = Types.Record ([ (sym, Types.Int); _ ], _) }
+    match trans_exp_of_string prog with
+    | {
+     exp = ();
+     ty =
+       Types.Name
+         (_, { contents = Some (Types.Record ([ (sym, Types.Int); _ ], _)) });
+    }
       when Symbol.equal sym (Symbol.symbol "hd") ->
         true
     | _ -> false
   with Error (error, 0) -> failwith_error error
 
-let%test "recursive procedures" =
+let%test "test6" =
   try
     let prog =
       {|
@@ -201,7 +286,7 @@ end
     | _ -> false
   with Error (error, _) -> failwith_error error
 
-let%test "recursive functions" =
+let%test "test7" =
   try
     let prog =
       {|
@@ -226,7 +311,7 @@ end
     | _ -> false
   with Error (error, _) -> failwith_error error
 
-let%test "correct_if" =
+let%test "test8" =
   try
     let prog =
       {|
@@ -241,7 +326,7 @@ if (10 > 20) then 30 else 40
     | _ -> false
   with Error (error, _) -> failwith_error error
 
-let%test "invalid_if" =
+let%test "test9" =
   try
     let prog =
       {|
@@ -256,7 +341,7 @@ if (5>4) then 13 else  " "
     failwith "did not raise error"
   with Error (Expr_type_clash (Types.Int, Types.String), _) -> true
 
-let%test "while_body_not_unit" =
+let%test "test10" =
   try
     let prog =
       {|
@@ -266,11 +351,45 @@ while(10 > 5) do 5+6
       
 |}
     in
-    let _res = trans_exp (ast_exp_of_string prog) in
+    let _res = trans_exp_of_string prog in
     failwith "did not raise error"
   with Error (Expr_type_clash (Types.Unit, Types.Int), _) -> true
 
-let%test "valid_for_and_let" =
+let%test "test11" =
+  try
+    let prog =
+      {|
+
+/* error hi expr is not int, and index variable erroneously assigned to.  */
+for i:=10 to " " do 
+  i := i - 1
+      
+|}
+    in
+    let _res = trans_exp_of_string prog in
+    failwith "did not raise error"
+  with
+  | Error (Expr_type_clash (Types.Int, Types.String), _) -> true
+  | Error (error, 0) -> failwith_error error
+
+let%test "test11.1" =
+  try
+    let prog =
+      {|
+
+/* error hi expr is not int, and index variable erroneously assigned to.  */
+for i:=10 to 11 do 
+  i := i - 1
+      
+|}
+    in
+    let _res = trans_exp_of_string prog in
+    failwith "did not raise error"
+  with
+  | Error (Readonly _, _) -> true
+  | Error (error, _) -> failwith_error error
+
+let%test "test12" =
   try
     let prog =
       {|
@@ -285,7 +404,47 @@ end
       
 |}
     in
-    match trans_exp (ast_exp_of_string prog) with
+    match trans_exp_of_string prog with
     | { ty = Types.Unit; _ } -> true
     | _ -> false
   with Error (error, _) -> failwith_error error
+
+let%test "test13" =
+  try
+    let prog =
+      {|
+
+/* error: comparison of incompatible types */
+
+3 > "df"
+      
+|}
+    in
+    let _res = trans_exp_of_string prog in
+    failwith "did not raise error"
+  with Error (error, _) -> failwith_error error
+
+let%test "test14" =
+  try
+    let prog =
+      {|
+
+/* error : compare rec with array */
+
+let
+
+  type arrtype = array of int
+  type rectype = {name:string, id: int}
+
+  var rec := rectype {name="aname", id=0}
+  var arr := arrtype [3] of 0
+
+in
+  if rec <> arr then 3 else 4
+end
+      
+|}
+    in
+    let _res = trans_exp_of_string prog in
+    failwith "did not raise error"
+  with _ -> true

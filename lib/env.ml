@@ -3,7 +3,7 @@ open Core
 type ty = Types.ty
 
 type entry =
-  | VarEntry of { ty : ty }
+  | VarEntry of { ty : ty; readonly : bool }
   | FunEntry of { formals : ty list; result : ty }
 
 let base_tenv =

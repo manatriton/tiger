@@ -72,6 +72,10 @@ let rec trans_exp venv tenv exp =
             | Types.Int, Types.Int | Types.String, Types.String -> tyl
             | Types.Record _, Types.Record _ when Types.equal tyl tyr -> tyl
             | Types.Array _, Types.Array _ when Types.equal tyl tyr -> Types.Int
+            | ( ((Types.Int | Types.String | Types.Record _ | Types.Array _) as
+                tyl),
+                tyr ) ->
+                raise (Error (Expr_type_clash (tyl, tyr), 0))
             | _, _ -> failwith "")
         | PlusOp | MinusOp | TimesOp | DivideOp | AndOp | OrOp -> (
             match (tyl, tyr) with

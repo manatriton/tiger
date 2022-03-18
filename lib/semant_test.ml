@@ -16,9 +16,8 @@ let failwith_error error =
     match error with
     | Wrong_num_arguments -> "wrong number of arguments"
     | Expr_type_clash (expect_ty, actual_ty) ->
-        sprintf "expected type %s, got type %s"
-          (Sexp.to_string (Types.sexp_of_ty expect_ty))
-          (Sexp.to_string (Types.sexp_of_ty actual_ty))
+        sprintf "expected type %s, got type %s" (Types.name expect_ty)
+          (Types.name actual_ty)
     | Unbound_type ty -> sprintf "unbound type %s" ty
     | Unbound_value v -> sprintf "unbound value %s" v
     | Unexpected_break -> "unexpected break"
@@ -227,7 +226,7 @@ end
     | _ -> false
   with Error (error, 0) -> failwith_error error
 
-let%test "test_5" =
+let%test "test5" =
   try
     let prog =
       {|
@@ -422,7 +421,9 @@ let%test "test13" =
     in
     let _res = trans_exp_of_string prog in
     failwith "did not raise error"
-  with Error (error, _) -> failwith_error error
+  with
+  | Error (Expr_type_clash (Types.Int, Types.String), _) -> true
+  | Error (error, _) -> failwith_error error
 
 let%test "test14" =
   try
@@ -447,4 +448,6 @@ end
     in
     let _res = trans_exp_of_string prog in
     failwith "did not raise error"
-  with _ -> true
+  with
+  | Error (Expr_type_clash (Types.Name _, Types.Name _), _) -> true
+  | Error (error, _) -> failwith_error error

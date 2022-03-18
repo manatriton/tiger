@@ -33,7 +33,7 @@ let find_or_raise_unbound_type tenv sym pos =
   | None -> raise (Error (Unbound_type (Symbol.name sym), pos))
 
 let expect_type_assignable ~dst ~src ~pos =
-  if not (Types.equal dst src) then
+  if not (Types.is_assignable ~dst ~src) then
     raise (Error (Expr_type_clash (dst, src), pos))
 
 let expect_type_equal x y pos =
@@ -67,45 +67,44 @@ let rec trans_exp venv tenv exp =
       let { ty = tyr; _ } = trans_exp venv tenv right in
       let ty =
         match oper with
-        | EqOp | NeqOp | GtOp | LtOp | GeOp | LeOp -> (
-            match (tyl, tyr) with
-            | Types.Int, Types.Int | Types.String, Types.String -> tyl
-            | Types.Record _, Types.Record _ when Types.equal tyl tyr -> tyl
-            | Types.Array _, Types.Array _ when Types.equal tyl tyr -> Types.Int
-            | ( ((Types.Int | Types.String | Types.Record _ | Types.Array _) as
-                tyl),
-                tyr ) ->
-                raise (Error (Expr_type_clash (tyl, tyr), 0))
-            | _, _ -> failwith "")
-        | PlusOp | MinusOp | TimesOp | DivideOp | AndOp | OrOp -> (
-            match (tyl, tyr) with
-            | Types.Int, Types.Int -> Types.Int
-            | _ -> failwith "")
+        | EqOp | NeqOp ->
+            if not (Types.can_test_equality tyl) then
+              failwith "can't test equality";
+            if not (Types.is_assignable ~dst:tyl ~src:tyr) then
+              raise (Error (Expr_type_clash (tyl, tyr), 0));
+            Types.Int
+        | LeOp | LtOp | GeOp | GtOp ->
+            if not (Types.comparable tyl) then failwith "can't compare";
+            if not (Types.is_assignable ~dst:tyl ~src:tyr) then
+              raise (Error (Expr_type_clash (tyl, tyr), 0));
+            Types.Int
+        | PlusOp | MinusOp | TimesOp | DivideOp | AndOp | OrOp ->
+            if not (Types.is_int tyl) then failwith "not integer";
+            if not (Types.is_assignable ~dst:tyl ~src:tyr) then
+              raise (Error (Expr_type_clash (tyl, tyr), 0));
+            Types.Int
       in
       { exp = (); ty }
   | RecordExp { fields; typ; pos } -> (
-      let validate_record tyfields uniq =
-        if List.length tyfields <> List.length fields then failwith "";
-        let fields' =
-          List.sort fields ~compare:(fun (s1, _, _) (s2, _, _) ->
-              String.compare (Symbol.name s1) (Symbol.name s2))
-        in
-        let tyfields' =
-          List.sort tyfields ~compare:(fun (s1, _) (s2, _) ->
-              String.compare (Symbol.name s1) (Symbol.name s2))
-        in
-        List.iter (List.zip_exn fields' tyfields')
-          ~f:(fun ((_, exp1, _), (_, ty2)) ->
-            let { ty; _ } = trans_exp venv tenv exp1 in
-            expect_type_equal ty2 ty pos);
-        { exp = (); ty = Types.Record (tyfields, uniq) }
-      in
       match Symbol.find tenv ~symbol:typ with
-      | Some (Types.Record (tyfields, uniq))
+      | Some (Types.Record (tyfields, _) as actual_ty)
       | Some
-          (Types.Name (_, { contents = Some (Types.Record (tyfields, uniq)) }))
-        ->
-          validate_record tyfields uniq
+          (Types.Name (_, { contents = Some (Types.Record (tyfields, _)) }) as
+          actual_ty) ->
+          if List.length tyfields <> List.length fields then failwith "";
+          let fields' =
+            List.sort fields ~compare:(fun (s1, _, _) (s2, _, _) ->
+                String.compare (Symbol.name s1) (Symbol.name s2))
+          in
+          let tyfields' =
+            List.sort tyfields ~compare:(fun (s1, _) (s2, _) ->
+                String.compare (Symbol.name s1) (Symbol.name s2))
+          in
+          List.iter (List.zip_exn fields' tyfields')
+            ~f:(fun ((_, exp1, _), (_, ty2)) ->
+              let { ty; _ } = trans_exp venv tenv exp1 in
+              expect_type_assignable ~dst:ty2 ~src:ty ~pos);
+          { exp = (); ty = actual_ty }
       | _ -> raise_unbound_type typ pos)
   | SeqExp exps ->
       if List.is_empty exps then { exp = (); ty = Types.Unit }
@@ -138,15 +137,15 @@ let rec trans_exp venv tenv exp =
           | { ty = Types.Unit; _ } -> { exp = (); ty = Types.Unit }
           | { ty; _ } -> raise (Error (Expr_type_clash (Types.Unit, ty), pos)))
       | { ty; _ } -> raise (Error (Expr_type_clash (Types.Int, ty), pos)))
-  | ForExp { var; escape = _; lo; hi; body; pos } -> (
+  | ForExp { var; escape = _; lo; hi; body; pos } ->
       (* assert lo int *)
-      (match trans_exp venv tenv lo with
-      | { exp = _; ty = Types.Int } -> ()
-      | { ty; _ } -> raise (Error (Expr_type_clash (Types.Int, ty), pos)));
+      let { exp = _exp; _ } =
+        expect_trans_exp_type venv tenv lo Types.Int pos
+      in
       (* assert hi int *)
-      (match trans_exp venv tenv hi with
-      | { exp = _; ty = Types.Int } -> ()
-      | { ty; _ } -> raise (Error (Expr_type_clash (Types.Int, ty), pos)));
+      let { exp = _exp; _ } =
+        expect_trans_exp_type venv tenv hi Types.Int pos
+      in
       let venv' =
         venv
         |> Symbol.add ~symbol:var
@@ -154,9 +153,9 @@ let rec trans_exp venv tenv exp =
         |> with_loop_marker
       in
       (* assert body *)
-      match trans_exp venv' tenv body with
-      | { exp = _; ty = Types.Unit } -> { exp = (); ty = Types.Unit }
-      | { ty; _ } -> raise (Error (Expr_type_clash (Types.Unit, ty), pos)))
+      let { ty; _ } = trans_exp venv' tenv body in
+      expect_type_equal Types.Unit ty pos;
+      { exp = (); ty = Types.Unit }
   | BreakExp pos -> (
       match Symbol.find venv ~symbol:(Symbol.symbol ":loop") with
       | Some _ -> { exp = (); ty = Types.Unit }
@@ -172,8 +171,8 @@ let rec trans_exp venv tenv exp =
       match Symbol.find tenv ~symbol:typ with
       | Some (Types.Array (inner_ty, _) as ty)
       | Some
-          (Types.Name
-            (_, { contents = Some (Types.Array (inner_ty, _) as ty) })) ->
+          (Types.Name (_, { contents = Some (Types.Array (inner_ty, _)) }) as
+          ty) ->
           let { ty = size_ty; _ } = trans_exp venv tenv size in
           expect_type_equal size_ty Types.Int pos;
           let { ty = init_ty; _ } = trans_exp venv tenv init in
@@ -289,3 +288,8 @@ and trans_ty _venv tenv = function
             (name, ty))
       in
       Types.Record (fields', ref ())
+
+and expect_trans_exp_type venv tenv exp ty pos =
+  let res = trans_exp venv tenv exp in
+  expect_type_equal ty res.ty pos;
+  res

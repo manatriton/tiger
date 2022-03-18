@@ -1,9 +1,10 @@
 type venv = Env.entry Symbol.table
 type tenv = Env.ty Symbol.table
-type expty = { exp: Translate.exp; ty: Env.ty }
+type expty = { exp : Translate.exp; ty : Env.ty }
+
 type error =
   | Wrong_num_arguments
-  | Expr_type_clash of Types.ty * Types.ty 
+  | Expr_type_clash of Types.ty * Types.ty
   (* | Duplicate_record_field *)
   | Unbound_value of string
   | Unbound_type of string

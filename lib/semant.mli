@@ -5,7 +5,7 @@ type expty = { exp : Translate.exp; ty : Env.ty }
 type error =
   | Wrong_num_arguments
   | Expr_type_clash of Types.ty * Types.ty
-  (* | Duplicate_record_field *)
+  | Duplicate_record_field of string
   | Unbound_value of string
   | Unbound_type of string
   | Unexpected_break

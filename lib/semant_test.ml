@@ -18,6 +18,7 @@ let failwith_error error =
     | Expr_type_clash (expect_ty, actual_ty) ->
         sprintf "expected type %s, got type %s" (Types.name expect_ty)
           (Types.name actual_ty)
+    | Duplicate_record_field s -> sprintf "duplicate record field %s" s
     | Unbound_type ty -> sprintf "unbound type %s" ty
     | Unbound_value v -> sprintf "unbound value %s" v
     | Unexpected_break -> "unexpected break"
@@ -126,6 +127,32 @@ while 1 do print("Hello, world!")
   match trans_exp (ast_exp_of_string prog) with
   | { exp = (); ty = Types.Unit } -> true
   | _ -> false
+
+let%test "duplicate_record_field1" =
+  try
+    let prog = {|
+let
+type foo = {bar:int, baz: int, bar: int}
+in
+	0
+end 
+|} in
+    let _res = trans_exp (ast_exp_of_string prog) in
+    failwith "did not raise error"
+  with Error (Duplicate_record_field "bar", _) -> true
+
+let%test "duplicate_record_field2" =
+  try
+    let prog = {|
+let
+type foo = {bar:int, baz: int, bar: int}
+in
+	0
+end 
+|} in
+    let _res = trans_exp (ast_exp_of_string prog) in
+    failwith "did not raise error"
+  with Error (Duplicate_record_field "bar", _) -> true
 
 let%test "test1" =
   try
@@ -1025,4 +1052,65 @@ end
     | _ -> false
   with Error (error, _) -> failwith_error error
 
-(* DO A SIMILAR CASE FOR RECORDS, ALSO MAKE SURE CAN SUBSCRIPT W/ NAMED INT TYPES *)
+let%test "test46" =
+  try
+    let prog =
+      {|/* valid rec comparisons */
+let 
+  type rectype = {name:string, id:int}
+  var b:rectype := nil
+in
+  b = nil;
+  b <> nil
+end
+|}
+    in
+    match trans_exp_of_string prog with
+    | { ty = Types.Int; _ } -> true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+let%test "test47" =
+  try
+    let prog =
+      {|/* This is legal.  The second type "a" simply hides the first one.
+  Because of the intervening variable declaration, the two "a" types
+  are not in the same  batch of mutually recursive types.
+  See also test38 */
+let
+  type a = int
+  var b := 4
+  type a = string
+  var n:a := "hello"
+in
+  0
+end   
+|}
+    in
+    match trans_exp_of_string prog with
+    | { ty = Types.Int; _ } -> true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+let%test "test48" =
+  try
+    let prog =
+      {|/* This is legal.  The second function "g" simply hides the first one.
+  Because of the intervening variable declaration, the two "g" functions
+  are not in the same  batch of mutually recursive functions. 
+  See also test39 */
+let
+  function g(a:int):int = a
+  type t = int
+  function g(a:int):int = a
+in
+  0
+end   
+|}
+    in
+    match trans_exp_of_string prog with
+    | { ty = Types.Int; _ } -> true
+    | _ -> false
+  with Error (error, _) -> failwith_error error
+
+(* DO A SIMILAR CASE FOR RECORDS, ALSO MAKE SURE CAN SUBSCRIPT W/ NAMED INT TYPES, DUPLICATE FIELDS IN RECORDS LOL *)

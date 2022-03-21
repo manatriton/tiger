@@ -8,7 +8,7 @@ type expty = { exp : Translate.exp; ty : Env.ty }
 type error =
   | Wrong_num_arguments
   | Expr_type_clash of Types.ty * Types.ty
-  (* | Duplicate_record_field *)
+  | Duplicate_record_field of string
   | Unbound_value of string
   | Unbound_type of string
   | Unexpected_break
@@ -22,7 +22,7 @@ type error =
   | Not_equality
   | Multiple_bindings of string
 
-exception Error of error * int
+exception Error of error * pos
 
 let with_loop_marker venv =
   Symbol.add venv ~symbol:(Symbol.symbol ":loop")
@@ -293,6 +293,15 @@ and trans_ty _venv tenv = function
       let ty = find_or_raise_unbound_type tenv sym pos in
       Types.Array (ty, ref ())
   | RecordTy fields ->
+      (match
+         List.find_a_dup
+           ~compare:(fun (f1 : Ast.field) f2 ->
+             String.compare (Symbol.name f1.name) (Symbol.name f2.name))
+           fields
+       with
+      | Some { name; pos; _ } ->
+          raise (Error (Duplicate_record_field (Symbol.name name), pos))
+      | None -> ());
       let fields' =
         List.map fields ~f:(fun { name; typ; pos; _ } ->
             let ty = find_or_raise_unbound_type tenv typ pos in

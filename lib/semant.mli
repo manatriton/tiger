@@ -11,6 +11,13 @@ type error =
   | Unexpected_break
   | Not_a_function of string
   | Readonly of string
+  | Nonexistent_field of string
+  | Not_an_array
+  | Not_a_record
+  | Not_an_integer
+  | Not_comparable
+  | Not_equality
+  | Multiple_bindings of string
 
 exception Error of error * int
 

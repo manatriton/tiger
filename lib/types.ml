@@ -62,3 +62,15 @@ let rec is_int ty =
   | Int -> true
   | Name (_, { contents = Some ty' }) -> is_int ty'
   | _ -> false
+
+let rec maybe_extract_record t =
+  match t with
+  | Name (_, { contents = Some ty' }) -> maybe_extract_record ty'
+  | Record (fields, unique) -> Some (fields, unique)
+  | _ -> None
+
+let rec maybe_extract_array t =
+  match t with
+  | Name (_, { contents = Some t' }) -> maybe_extract_array t'
+  | Array (ty, unique) -> Some (ty, unique)
+  | _ -> None

@@ -31,6 +31,7 @@ let failwith_error error =
     | Not_comparable -> "not comparable"
     | Not_equality -> "not equality"
     | Multiple_bindings s -> sprintf "%s is bound multiple times" s
+    | Cycle -> "cycle"
   in
 
   failwith s
@@ -485,6 +486,30 @@ end
     failwith "did not raise error"
   with
   | Error (Expr_type_clash (Types.Name _, Types.Name _), _) -> true
+  | Error (error, _) -> failwith_error error
+
+let%test "test16" =
+  try
+    let prog =
+      {|/* error: mutually recursive types thet do not pass through record or array */
+let 
+
+type a=c
+type b=a
+type c=d
+type d=a
+
+in
+  ""
+end
+      
+      
+|}
+    in
+    let _res = trans_exp_of_string prog in
+    failwith "did not raise error"
+  with
+  | Error (Cycle, _) -> true
   | Error (error, _) -> failwith_error error
 
 let%test "test17" =

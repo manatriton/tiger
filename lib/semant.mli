@@ -18,6 +18,7 @@ type error =
   | Not_comparable
   | Not_equality
   | Multiple_bindings of string
+  | Cycle
 
 exception Error of error * int
 

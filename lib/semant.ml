@@ -21,6 +21,7 @@ type error =
   | Not_comparable
   | Not_equality
   | Multiple_bindings of string
+  | Cycle
 
 exception Error of error * pos
 
@@ -45,6 +46,19 @@ let expect_type_assignable ~dst ~src ~pos =
 
 let expect_type_equal x y pos =
   if not (Types.equal x y) then raise (Error (Expr_type_clash (x, y), pos))
+
+let check_cycles tys =
+  let rec check_cycles' ty s =
+    match ty with
+    | Types.Name (sym, { contents = Some ty' }) ->
+        if Set.mem s (Symbol.name sym) then raise (Error (Cycle, 0));
+        check_cycles' ty' (Set.add s (Symbol.name sym))
+    | _ -> ()
+  in
+  List.iter tys ~f:(fun ty ->
+      match ty with
+      | Types.Name _ -> check_cycles' ty (Set.empty (module String))
+      | _ -> ())
 
 let rec trans_exp venv tenv exp =
   match exp with
@@ -279,12 +293,12 @@ and trans_dec venv tenv = function
             let ty_ref = ref None in
             let name_ty = Types.Name (name, ty_ref) in
             ( Symbol.add acc_tenv ~symbol:name ~data:name_ty,
-              (ast_ty, ty_ref) :: acc_l,
+              (ast_ty, ty_ref, name_ty) :: acc_l,
               Set.add s sname ))
       in
-
-      List.iter l ~f:(fun (ast_ty, ty_ref) ->
+      List.iter l ~f:(fun (ast_ty, ty_ref, _) ->
           ty_ref := Some (trans_ty venv tenv' ast_ty));
+      check_cycles (List.map l ~f:(fun (_, _, ty) -> ty));
       (venv, tenv')
 
 and trans_ty _venv tenv = function
